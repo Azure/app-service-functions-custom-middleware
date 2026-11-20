@@ -1,0 +1,31 @@
+[project]
+name = "app-service-functions-custom-middleware"
+version = "1.0.0"
+description = "Building blocks for agents hosted behind an EasyAuth-fronted App Service."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+functions = ["azure-functions>=1.21"]
+identity = ["azure-identity>=1.15"]
+hosted-skills = ["azurefunctions-agents-runtime>=0.1.0b7,<=0.1.0b17", "starlette>=0.37"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "starlette>=0.37",
+]
+
+[tool.poetry]
+packages = [{ include = "app_service_extensions", from = "src" }]
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+asyncio_mode = "auto"
