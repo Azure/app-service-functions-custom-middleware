@@ -7,7 +7,7 @@ import inspect
 import json
 from typing import Any
 
-from ..hooks import from_asgi, hold_request
+from ..hooks import MODE_PROXY, from_asgi, hold_request
 from . import logger, replace_runtime_reference
 from ._answer import answer_with, collect, failed_answer, succeeded
 from ._mcp_request_scope import RequestScope, _missing_functions, finish
@@ -88,7 +88,7 @@ def _serving(handler: Any, as_payload: Any) -> Any:
         scope.adopt()
         try:
             hook = from_asgi(req, await req.body())
-            if not hook.answers_with_patch:
+            if not hook.is_hook or (hook.mode or "").lower() == MODE_PROXY:
                 # A direct call or a proxy hook: the agent's own answer is the response.
                 return await finish(await handler(req, *rest, **named), scope)
 
@@ -98,6 +98,9 @@ def _serving(handler: Any, as_payload: Any) -> Any:
 
             # Run the runtime's own handler, with the hook standing in for the body it reads.
             response = await handler(_PreparedRequest(req, as_payload(hook)), *rest, **named)
+
+            if not hook.answers_with_patch:
+                return await finish(response, scope)
 
             # A streaming handler returns before the agent has run, so nothing it decides has
             # happened yet.

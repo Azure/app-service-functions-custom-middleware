@@ -159,6 +159,10 @@ forwarded request to the agent and provides tools to edit it, pass it through,
 or respond. The built-in tools do not automatically expose `ase.call_web_app()` to
 the agent.
 
+Mirror hooks supply a `Mirrored HTTP request` prompt to the agent without converting
+its reply into a request patch. Mirrors observe the original request; their replies
+cannot modify or replace the application's response.
+
 For an agent that handles intercept hooks, add this guidance to the Markdown
 body of its `.agent.md` file, below the YAML front matter:
 

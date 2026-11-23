@@ -164,7 +164,7 @@ class HookRequest:
     @property
     def answers_with_patch(self) -> bool:
         """True when the middleware reads this handler's response as a patch."""
-        return self.is_hook and (self.mode or "").lower() != MODE_PROXY
+        return self.is_hook and (self.mode or "").lower() == "intercept"
 
     @property
     def query_params(self) -> dict[str, str]:
@@ -192,7 +192,10 @@ class HookRequest:
     def to_prompt(self) -> str:
         """Render this request as the prompt text an agent reasons about."""
         rendered = json.dumps(self.envelope(), ensure_ascii=False, indent=2, default=str)
-        return f"Intercepted HTTP request:\n```json\n{rendered}\n```"
+        kind = {"mirror": "Mirrored", MODE_PROXY: "Proxied"}.get(
+            (self.mode or "").lower(), "Intercepted"
+        )
+        return f"{kind} HTTP request:\n```json\n{rendered}\n```"
 
     def edit(self) -> EditableRequest:
         """Open a mutable view of this request that derives its own patch."""
