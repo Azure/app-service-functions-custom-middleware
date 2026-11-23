@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,7 +22,7 @@ from azure_functions_agents.registration.capabilities import AgentCapabilities  
 from starlette.requests import Request  # noqa: E402
 
 from app_service_extensions import auth, hooks  # noqa: E402
-from app_service_extensions.azure_functions_agents_integration import _mcp_request_scope  # noqa: E402
+from app_service_extensions.azure_functions_agents_integration import _mcp_request_scope, _prompt  # noqa: E402
 from app_service_extensions.azure_functions_agents_integration._prompt import (  # noqa: E402
     _as_chat_prompt,
     _as_envelope,
@@ -125,7 +127,7 @@ class TestCallbackChainBoundary:
         )
 
 
-def resolved_agent():
+def resolved_agent(*, input_schema=None):
     return ResolvedAgent(
         name="review",
         description="Integration fixture",
@@ -139,19 +141,20 @@ def resolved_agent():
         enabled_skills_names=[],
         tool_filter=ToolsFilter(),
         sandbox_config=None,
-        input_schema=None,
+        input_schema=input_schema,
         response_schema=None,
         response_example=None,
     )
 
 
-def hook_request():
-    headers = {
-        "x-ms-hook-name": "review",
-        "x-ms-hook-mode": "intercept",
-        "x-ms-hook-path": "/api/review",
-        "content-type": "application/json",
-    }
+def hook_request(mode="intercept"):
+    headers = {"content-type": "application/json"}
+    if mode is not None:
+        headers.update({
+            "x-ms-hook-name": "review",
+            "x-ms-hook-mode": mode,
+            "x-ms-hook-path": "/api/review",
+        })
 
     async def receive():
         return {"type": "http.request", "body": b"{}", "more_body": False}
@@ -168,6 +171,157 @@ def hook_request():
         },
         receive,
     )
+
+
+class TestHttpAgentPrompts:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [("intercept", "app is waiting"), ("mirror", "continues independently")],
+    )
+    async def test_guidance_reaches_the_model_without_changing_the_validated_envelope(
+        self, monkeypatch, mode, expected
+    ):
+        triggers = pytest.importorskip("azure_functions_agents.registration.triggers")
+        captured = []
+
+        async def run(prompt, **kwargs):
+            captured.append(prompt)
+            if mode == "intercept":
+                request_tools.passthrough()
+            return SimpleNamespace(content="observed", model="test", tool_calls=[], session_id="test")
+
+        monkeypatch.setattr(handlers, "_run_agent", run)
+        monkeypatch.setattr(handlers, "make_http_agent_handler", handlers.make_http_agent_handler)
+        monkeypatch.setattr(triggers, "make_http_agent_handler", triggers.make_http_agent_handler)
+        _prompt._patch_agent_trigger()
+
+        fields = ("hook", "mode", "method", "path", "route", "origin", "query",
+                  "contentType", "headers", "body")
+        schema = {
+            "type": "object",
+            "properties": {name: {} for name in fields},
+            "required": list(fields),
+            "additionalProperties": False,
+        }
+        handler = handlers.make_http_agent_handler(
+            resolved_agent(input_schema=schema), AgentCapabilities()
+        )
+        response = await handler(hook_request(mode))
+
+        assert response.status_code == 200
+        if mode == "intercept":
+            assert json.loads(response.body) == {"action": "passthrough"}
+        else:
+            assert response.body == b"observed"
+        assert len(captured) == 1
+        assert expected in captured[0]
+        request_json = captured[0].split("HTTP request data:\n```json\n", 1)[1].split("\n```", 1)[0]
+        envelope = json.loads(request_json)
+        assert set(envelope) == set(fields)
+        assert envelope["mode"] == mode
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", [None, "proxy"], ids=["direct", "proxy"])
+    async def test_direct_and_proxy_calls_do_not_receive_hook_guidance(self, monkeypatch, mode):
+        triggers = pytest.importorskip("azure_functions_agents.registration.triggers")
+        captured = []
+
+        async def run(prompt, **kwargs):
+            captured.append(prompt)
+            return SimpleNamespace(content="observed", model="test", tool_calls=[], session_id="test")
+
+        monkeypatch.setattr(handlers, "_run_agent", run)
+        monkeypatch.setattr(handlers, "make_http_agent_handler", handlers.make_http_agent_handler)
+        monkeypatch.setattr(triggers, "make_http_agent_handler", triggers.make_http_agent_handler)
+        _prompt._patch_agent_trigger()
+        handler = handlers.make_http_agent_handler(resolved_agent(), AgentCapabilities())
+
+        response = await handler(hook_request(mode))
+        assert response.status_code == 200
+        assert "app is waiting" not in captured[0]
+        assert "continues independently" not in captured[0]
+        assert '"mode"' not in captured[0]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_hook_modes_do_not_share_guidance(self, monkeypatch):
+        triggers = pytest.importorskip("azure_functions_agents.registration.triggers")
+        captured = {}
+        both_started = asyncio.Event()
+
+        async def run(prompt, **kwargs):
+            envelope = json.loads(
+                prompt.split("HTTP request data:\n```json\n", 1)[1].split("\n```", 1)[0]
+            )
+            captured[envelope["mode"]] = prompt
+            if envelope["mode"] == "intercept":
+                request_tools.passthrough()
+            if len(captured) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=3)
+            return SimpleNamespace(content="observed", model="test", tool_calls=[], session_id="test")
+
+        monkeypatch.setattr(handlers, "_run_agent", run)
+        monkeypatch.setattr(handlers, "make_http_agent_handler", handlers.make_http_agent_handler)
+        monkeypatch.setattr(triggers, "make_http_agent_handler", triggers.make_http_agent_handler)
+        _prompt._patch_agent_trigger()
+        handler = handlers.make_http_agent_handler(resolved_agent(), AgentCapabilities())
+
+        responses = await asyncio.gather(handler(hook_request("intercept")), handler(hook_request("mirror")))
+
+        assert [response.status_code for response in responses] == [200, 200]
+        assert "app is waiting" in captured["intercept"]
+        assert "continues independently" not in captured["intercept"]
+        assert "continues independently" in captured["mirror"]
+        assert "app is waiting" not in captured["mirror"]
+
+    @pytest.mark.asyncio
+    async def test_validation_failure_does_not_leak_hook_guidance(self, monkeypatch):
+        triggers = pytest.importorskip("azure_functions_agents.registration.triggers")
+        captured = []
+
+        async def run(prompt, **kwargs):
+            captured.append(prompt)
+            return SimpleNamespace(content="observed", model="test", tool_calls=[], session_id="test")
+
+        monkeypatch.setattr(handlers, "_run_agent", run)
+        monkeypatch.setattr(handlers, "make_http_agent_handler", handlers.make_http_agent_handler)
+        monkeypatch.setattr(triggers, "make_http_agent_handler", triggers.make_http_agent_handler)
+        _prompt._patch_agent_trigger()
+        schema = {"type": "object", "properties": {}, "additionalProperties": False}
+        handler = handlers.make_http_agent_handler(
+            resolved_agent(input_schema=schema), AgentCapabilities()
+        )
+
+        response = await handler(hook_request("intercept"))
+        await handlers._run_agent("unrelated run")
+
+        assert response.status_code == 400
+        assert captured == ["unrelated run"]
+
+    @pytest.mark.asyncio
+    async def test_guidance_is_not_reapplied_to_a_nested_agent_run(self, monkeypatch):
+        triggers = pytest.importorskip("azure_functions_agents.registration.triggers")
+        captured = []
+
+        async def run(prompt, **kwargs):
+            captured.append(prompt)
+            if prompt != "nested run":
+                await handlers._run_agent("nested run")
+                request_tools.passthrough()
+            return SimpleNamespace(content="observed", model="test", tool_calls=[], session_id="test")
+
+        monkeypatch.setattr(handlers, "_run_agent", run)
+        monkeypatch.setattr(handlers, "make_http_agent_handler", handlers.make_http_agent_handler)
+        monkeypatch.setattr(triggers, "make_http_agent_handler", triggers.make_http_agent_handler)
+        _prompt._patch_agent_trigger()
+        handler = handlers.make_http_agent_handler(resolved_agent(), AgentCapabilities())
+
+        response = await handler(hook_request("intercept"))
+
+        assert response.status_code == 200
+        assert "app is waiting" in captured[0]
+        assert captured[1] == "nested run"
 
 
 class TestFailedTurns:

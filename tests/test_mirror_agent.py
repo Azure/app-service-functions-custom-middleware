@@ -9,6 +9,7 @@ from app_service_extensions.azure_functions_agents_integration._prompt import (
     _as_chat_prompt,
     _serving,
 )
+from app_service_extensions.tools import request as request_tools
 
 
 def mirror_request():
@@ -46,11 +47,18 @@ async def test_mirror_agent_gets_event_prompt_without_replacing_its_response():
 
     async def handler(req):
         seen.update(await req.json())
+        answer = request_tools.respond(status=207, body='{"mustNotReplace": true}')
+        assert "mirror" in answer.lower()
+        assert "intercept" in answer.lower()
+        assert not current_request().touched
         current_request().respond(status=207, body={"mustNotReplace": True})
+        assert current_request().touched
         return Response("observed", status_code=202)
 
     response = await _serving(handler, _as_chat_prompt)(mirror_request())
     assert seen["prompt"].startswith("Mirrored HTTP request:")
+    assert "continues independently" in seen["prompt"]
+    assert "cannot change" in seen["prompt"]
     assert '"method": "PUT"' in seen["prompt"]
     assert response.status_code == 202
     assert response.body == b"observed"

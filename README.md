@@ -154,26 +154,18 @@ Framework backend, for agent HTTP triggers and the built-in chat and streaming
 chat routes. The Copilot SDK backend and the `@app.hosted_skill` binding are
 not supported as hook handlers by this integration.
 
-For an intercept hook, the integration supplies the
-forwarded request to the agent and provides tools to edit it, pass it through,
-or respond. The built-in tools do not automatically expose `ase.call_web_app()` to
-the agent.
+For intercept and mirror hooks, the integration supplies the forwarded request and
+mode-specific guidance to the agent on both HTTP triggers and built-in chat routes.
+Intercept guidance explains how to use the request tools to edit, pass through, or
+respond; a prose reply alone is not a decision. If an intercept handler does not
+return a valid patch, App Service Hooks applies its configured `failurePolicy`.
 
-Mirror hooks supply a `Mirrored HTTP request` prompt to the agent without converting
-its reply into a request patch. Mirrors observe the original request; their replies
-cannot modify or replace the application's response.
-
-For an agent that handles intercept hooks, add this guidance to the Markdown
-body of its `.agent.md` file, below the YAML front matter:
-
-> For intercept requests, use the hook tools to record your decision. If the
-> request should continue unchanged, call `passthrough()`. If it needs changes,
-> use the edit tools. If it needs a direct response, call `respond()`. A prose
-> reply alone does not count as a decision.
-
-The extension does not add these instructions automatically. If the intercept
-handler does not return a valid patch, App Service Hooks applies the hook's
-configured `failurePolicy`.
+Mirror guidance explains that the agent receives a copy while the original request
+continues independently. A mirror reply cannot modify the request or replace the
+application's response. The model-facing request tools only record decisions for
+intercepts; on a mirror they return an explanation without recording a decision.
+Other tools can still perform independent follow-up work. The built-in tools do not
+automatically expose `ase.call_web_app()` to the agent.
 
 ## Authentication and callbacks
 
