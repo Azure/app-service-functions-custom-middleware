@@ -204,6 +204,7 @@ def fake_hosted_skills(monkeypatch):
 
     runner.run_agent = run_agent
     runner.run_agent_stream = run_agent
+    handlers._run_agent = run_agent
     capabilities = types.SimpleNamespace(
         filtered_mcp_tools=list(discover_mcp_servers(".").servers.values())
     )
@@ -349,6 +350,7 @@ class TestDetection:
             ("tools", "azure_functions_agents.discovery.tools", "discover_project_tools"),
             ("tools", "azure_functions_agents", "tool"),
             ("prompt", "azure_functions_agents.registration._handlers", "make_http_agent_handler"),
+            ("prompt", "azure_functions_agents.registration._handlers", "_run_agent"),
         ],
     )
     @pytest.mark.parametrize("missing", [True, False], ids=["missing", "not-callable"])

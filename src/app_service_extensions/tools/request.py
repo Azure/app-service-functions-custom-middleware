@@ -18,6 +18,14 @@ def _answers_in_words(tool: Callable[..., str]) -> Callable[..., str]:
     @functools.wraps(tool)
     def answering(*args: Any, **kwargs: Any) -> str:
         try:
+            request = current_request().request
+            if not request.answers_with_patch:
+                if (request.mode or "").lower() == "mirror":
+                    return (
+                        "Request decision tools only work for intercept hooks. This is a mirror "
+                        "copy, and the original request continues independently."
+                    )
+                return "Request decision tools only work for intercept hooks; this is not an intercept."
             return tool(*args, **kwargs)
         except NoHookError:
             return (
@@ -38,7 +46,7 @@ def _answers_in_words(tool: Callable[..., str]) -> Callable[..., str]:
 
 @_answers_in_words
 def set_header(name: str, value: str) -> str:
-    """Set a header on the in-flight request.
+    """Set a header on the intercepted request.
 
     Args:
         name: The header name, e.g. "X-Category".
@@ -50,7 +58,7 @@ def set_header(name: str, value: str) -> str:
 
 @_answers_in_words
 def remove_header(name: str) -> str:
-    """Remove a header from the in-flight request.
+    """Remove a header from the intercepted request.
 
     Args:
         name: The header name to remove.
@@ -61,7 +69,7 @@ def remove_header(name: str) -> str:
 
 @_answers_in_words
 def set_query(name: str, value: str) -> str:
-    """Set a query parameter on the in-flight request.
+    """Set a query parameter on the intercepted request.
 
     Args:
         name: The parameter name, e.g. "q".
@@ -73,7 +81,7 @@ def set_query(name: str, value: str) -> str:
 
 @_answers_in_words
 def remove_query(name: str) -> str:
-    """Remove a query-string parameter from the in-flight request.
+    """Remove a query-string parameter from the intercepted request.
 
     Args:
         name: The parameter name to remove.
@@ -84,7 +92,7 @@ def remove_query(name: str) -> str:
 
 @_answers_in_words
 def replace_body(body: str) -> str:
-    """Replace the whole body of the in-flight request.
+    """Replace the whole body of the intercepted request.
 
     Args:
         body: The complete replacement body as a JSON string.
@@ -95,7 +103,7 @@ def replace_body(body: str) -> str:
 
 @_answers_in_words
 def respond(status: int = 200, body: str = "") -> str:
-    """Answer the request yourself, without letting the app handle it at all.
+    """Answer the intercepted request yourself, without letting the app handle it at all.
 
     To edit the request after this, call passthrough first.
 
@@ -112,7 +120,7 @@ def respond(status: int = 200, body: str = "") -> str:
 
 @_answers_in_words
 def passthrough() -> str:
-    """Let the app serve the original request unchanged.
+    """Let the app serve the intercepted request unchanged.
 
     Undoes any edits or response so far. Edits made after this are kept.
     """

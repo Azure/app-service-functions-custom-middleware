@@ -5,12 +5,16 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+from contextvars import ContextVar
 from typing import Any
 
-from ..hooks import from_asgi, hold_request
+from ..hooks import MODE_PROXY, _mode_guidance, from_asgi, hold_request
 from . import logger, replace_runtime_reference
 from ._answer import answer_with, collect, failed_answer, succeeded
 from ._mcp_request_scope import RequestScope, _missing_functions, finish
+
+
+_http_hook_guidance: ContextVar[str | None] = ContextVar("ase_http_hook_guidance", default=None)
 
 
 class _PreparedRequest:
@@ -35,7 +39,7 @@ class _PreparedRequest:
 def validate_prompt() -> None:
     """Check prompt support; built-in chat routes are optional."""
     required: dict[str, tuple[str, ...]] = {
-        "azure_functions_agents.registration._handlers": ("make_http_agent_handler",),
+        "azure_functions_agents.registration._handlers": ("make_http_agent_handler", "_run_agent"),
     }
     try:
         from azure_functions_agents.registration import endpoints
@@ -86,9 +90,10 @@ def _serving(handler: Any, as_payload: Any) -> Any:
     async def serve(req: Any, *rest: Any, **named: Any) -> Any:
         scope = RequestScope.from_request(req)
         scope.adopt()
+        guidance_reset = _http_hook_guidance.set(None)
         try:
             hook = from_asgi(req, await req.body())
-            if not hook.answers_with_patch:
+            if not hook.is_hook or (hook.mode or "").lower() == MODE_PROXY:
                 # A direct call or a proxy hook: the agent's own answer is the response.
                 return await finish(await handler(req, *rest, **named), scope)
 
@@ -97,7 +102,12 @@ def _serving(handler: Any, as_payload: Any) -> Any:
             editable = hold_request(hook)
 
             # Run the runtime's own handler, with the hook standing in for the body it reads.
+            if as_payload is _as_envelope:
+                _http_hook_guidance.set(_mode_guidance(hook.mode))
             response = await handler(_PreparedRequest(req, as_payload(hook)), *rest, **named)
+
+            if not hook.answers_with_patch:
+                return await finish(response, scope)
 
             # A streaming handler returns before the agent has run, so nothing it decides has
             # happened yet.
@@ -118,6 +128,8 @@ def _serving(handler: Any, as_payload: Any) -> Any:
             # However this ended, hook state must not outlive it on a pooled worker.
             await scope.close()
             raise
+        finally:
+            _http_hook_guidance.reset(guidance_reset)
 
     return serve
 
@@ -129,6 +141,20 @@ def _patch_agent_trigger() -> None:
     """Give an agent's own route the whole incoming request and headers as its prompt."""
     from azure_functions_agents.registration import _handlers
 
+    original_run = _handlers._run_agent
+
+    @functools.wraps(original_run)
+    async def run_agent(prompt: str, *args: Any, **kwargs: Any) -> Any:
+        guidance = _http_hook_guidance.get()
+        if not guidance:
+            return await original_run(prompt, *args, **kwargs)
+        reset = _http_hook_guidance.set(None)
+        try:
+            return await original_run(f"{guidance}\n\n{prompt}", *args, **kwargs)
+        finally:
+            _http_hook_guidance.reset(reset)
+
+    _handlers._run_agent = run_agent
     original = _handlers.make_http_agent_handler
 
     @functools.wraps(original)

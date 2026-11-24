@@ -175,6 +175,31 @@ class TestAnsweringAModel:
         answer = set_header("X-A", "1")
         assert "no in-flight request" in answer
 
+    @pytest.mark.parametrize("mode", ["mirror", "MiRrOr", "proxy", None])
+    @pytest.mark.parametrize(
+        ("tool", "args"),
+        [
+            (set_header, ("X-Category", "Travel")),
+            (remove_header, ("X-Debug",)),
+            (set_query, ("q", "Alex")),
+            (remove_query, ("debug",)),
+            (replace_body, ('{"changed": true}',)),
+            (respond, (403,)),
+            (passthrough, ()),
+        ],
+    )
+    def test_request_tools_cannot_decide_non_intercept_hooks(self, nothing_held, mode, tool, args):
+        editable = hooks.hold_request(HookRequest(hook="observer", mode=mode))
+
+        answer = tool(*args)
+
+        assert "intercept" in answer.lower()
+        assert not answer.startswith("Done")
+        assert not editable.touched
+        if (mode or "").lower() == "mirror":
+            assert "mirror" in answer.lower()
+            assert "continues independently" in answer
+
     def test_an_unrelated_runtime_error_is_not_mistaken_for_a_missing_request(
         self, held, monkeypatch
     ):

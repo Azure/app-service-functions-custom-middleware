@@ -131,6 +131,19 @@ class TestPrompt:
         prompt = request.to_prompt()
         return json.loads(prompt.split("```json", 1)[1].rsplit("```", 1)[0])
 
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [
+            ("intercept", ("app is waiting", "passthrough()", "edit", "respond()", "text")),
+            ("MiRrOr", ("copy", "independently", "cannot change", "respond()", "passthrough()")),
+        ],
+    )
+    def test_explains_the_mode_to_the_agent(self, mode, expected):
+        prompt = build(headers={"X-MS-Hook-Mode": mode}).to_prompt()
+        for phrase in expected:
+            assert phrase in prompt
+        assert self.envelope_of(build(headers={"X-MS-Hook-Mode": mode}))["mode"] == mode
+
     def test_carries_what_the_body_alone_would_lose(self):
         # Hosted Skills runtime's own handler prompts with the body and nothing else; a GET would render as {}.
         request = build(

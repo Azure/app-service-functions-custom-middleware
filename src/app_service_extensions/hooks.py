@@ -42,6 +42,25 @@ _hook_invocation: ContextVar[str | None] = ContextVar("ase_hook_invocation", def
 #: The one mode whose response is the user's own, rather than a patch for the middleware to apply.
 MODE_PROXY = "proxy"
 
+
+def _mode_guidance(mode: str | None) -> str:
+    if (mode or "").lower() == "intercept":
+        return (
+            "This is an intercept hook: the app is waiting for your decision. "
+            "Call passthrough() to let the original request through, use the request edit tools "
+            "to modify it before the app handles it, or call respond() to return an HTTP response "
+            "without running the app. A text reply alone is not a decision."
+        )
+    if (mode or "").lower() == "mirror":
+        return (
+            "This is a mirror hook: you received a copy of the request while the original "
+            "continues independently. Your reply and request edits cannot change the original "
+            "request or its response. Do not call request decision tools such as respond() or "
+            "passthrough() to control it; other tools may be used for independent follow-up work."
+        )
+    return ""
+
+
 # Reserve platform namespaces instead of listing internal header names.
 _SENSITIVE_HEADERS = frozenset(
     {
@@ -164,7 +183,7 @@ class HookRequest:
     @property
     def answers_with_patch(self) -> bool:
         """True when the middleware reads this handler's response as a patch."""
-        return self.is_hook and (self.mode or "").lower() != MODE_PROXY
+        return self.is_hook and (self.mode or "").lower() == "intercept"
 
     @property
     def query_params(self) -> dict[str, str]:
@@ -192,7 +211,13 @@ class HookRequest:
     def to_prompt(self) -> str:
         """Render this request as the prompt text an agent reasons about."""
         rendered = json.dumps(self.envelope(), ensure_ascii=False, indent=2, default=str)
-        return f"Intercepted HTTP request:\n```json\n{rendered}\n```"
+        kind = {"mirror": "Mirrored", MODE_PROXY: "Proxied"}.get(
+            (self.mode or "").lower(), "Intercepted"
+        )
+        guidance = _mode_guidance(self.mode)
+        if guidance:
+            guidance += "\n\n"
+        return f"{kind} HTTP request:\n{guidance}```json\n{rendered}\n```"
 
     def edit(self) -> EditableRequest:
         """Open a mutable view of this request that derives its own patch."""
