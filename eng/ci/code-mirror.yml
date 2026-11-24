@@ -1,0 +1,108 @@
+trigger:
+  batch: true
+  branches:
+    include:
+    - main
+pr: none
+
+resources:
+  repositories:
+  - repository: 1es
+    type: git
+    name: 1ESPipelineTemplates/1ESPipelineTemplates
+    ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Unofficial.PipelineTemplate.yml@1es
+  parameters:
+    pool:
+      name: antares-vs2022-v3
+      os: windows
+    stages:
+    - stage: Mirror
+      jobs:
+      - job: MirrorMain
+        workspace:
+          clean: all
+        templateContext:
+          type: validationJob
+        steps:
+        - checkout: self
+          path: s/source
+          fetchDepth: 0
+          fetchTags: false
+          persistCredentials: false
+
+        - pwsh: |
+            if ($env:BUILD_REPOSITORY_PROVIDER -ne 'GitHub' -or
+                $env:BUILD_REPOSITORY_NAME -ne 'Azure/app-service-functions-custom-middleware' -or
+                $env:BUILD_SOURCEBRANCH -cne 'refs/heads/main' -or
+                $env:BUILD_REASON -notin 'IndividualCI', 'BatchedCI', 'Manual') {
+              throw 'Only CI or manual runs of the official GitHub main branch can mirror.'
+            }
+            $head = git rev-parse --verify HEAD
+            if ($LASTEXITCODE -ne 0 -or $head -cne $env:BUILD_SOURCEVERSION) {
+              throw 'The checked-out commit does not match the triggering GitHub commit.'
+            }
+            Write-Host "Validated GitHub main at $head."
+          displayName: Validate the triggering commit
+          workingDirectory: $(Pipeline.Workspace)/s/source
+
+        - checkout: git://Antares/AppServiceFunctionsCustomMiddleware@refs/heads/main
+          path: s/destination
+          fetchDepth: 0
+          fetchTags: false
+          persistCredentials: false
+
+        - pwsh: |
+            $ErrorActionPreference = 'Stop'
+            $PSNativeCommandUseErrorActionPreference = $false
+            function Invoke-Git {
+              git @args
+              if ($LASTEXITCODE -ne 0) { throw "Git failed (exit $LASTEXITCODE): $($args[0])" }
+            }
+
+            $ref = 'refs/heads/main'
+            $origin = Invoke-Git remote get-url origin
+            $auth = "--config-env=http.$origin.extraHeader=ADO_AUTHORIZATION"
+            Invoke-Git $auth fetch --no-tags origin $ref
+            $destination = Invoke-Git rev-parse --verify 'FETCH_HEAD^{commit}'
+            Invoke-Git fetch --no-tags ../source HEAD
+            $source = Invoke-Git rev-parse --verify 'FETCH_HEAD^{commit}'
+            if ($source -cne $env:BUILD_SOURCEVERSION) { throw 'Fetched an unexpected GitHub commit.' }
+
+            Invoke-Git cat-file -e "${destination}:es-metadata.yml"
+            git merge-base --is-ancestor $source $destination
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Azure Repos main already contains $source."
+              exit 0
+            }
+            if ($LASTEXITCODE -ne 1) { throw 'Cannot compare the GitHub and Azure Repos commits.' }
+
+            Invoke-Git switch --detach $destination
+            Invoke-Git config --local user.name 'App Service mirror'
+            Invoke-Git config --local user.email 'app-service-mirror@automation.invalid'
+            # Only the original Start Right seed can bootstrap unrelated histories and yield its starter README.
+            $bootstrap = $destination -ceq '0b253ea23f67ac4d3c15b7c07381742fcda7a8ee'
+            $options = @('--no-ff', '--no-commit')
+            if ($bootstrap) { $options += '--allow-unrelated-histories' }
+            git merge @options $source
+            $mergeExit = $LASTEXITCODE
+            if ($mergeExit -ne 0) {
+              $conflicts = @(Invoke-Git diff --name-only --diff-filter=U)
+              if (!$bootstrap -or $mergeExit -ne 1 -or $conflicts.Count -ne 1 -or $conflicts[0] -cne 'README.md') {
+                throw "Sync needs a reviewed merge; nothing was pushed. Conflicts: $($conflicts -join ', ')"
+              }
+              Invoke-Git restore "--source=$source" --staged --worktree -- README.md
+            }
+
+            $protected = @('es-metadata.yml', '.config/tsaoptions.json', 'azurepipelines-coverage.yml', 'pip.conf', 'pip.ini')
+            git diff --cached --quiet $destination -- @protected
+            if ($LASTEXITCODE -ne 0) { throw 'The merge would change ADO inventory or build configuration, or the check failed. Nothing was pushed.' }
+            Invoke-Git commit -m "Sync GitHub main at $source"
+            Invoke-Git $auth -c push.followTags=false push origin "HEAD:$ref"
+            Write-Host "Azure Repos main now contains GitHub commit $source."
+          displayName: Merge GitHub main into Azure Repos main
+          workingDirectory: $(Pipeline.Workspace)/s/destination
+          env:
+            ADO_AUTHORIZATION: 'AUTHORIZATION: bearer $(System.AccessToken)'
