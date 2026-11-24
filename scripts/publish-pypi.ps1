@@ -7,6 +7,10 @@ Run from any directory:
 
     .\scripts\publish-pypi.ps1
 
+This direct-upload helper is retained for compatibility. Microsoft production
+releases must use the ESRP release pipeline in .pipelines\release-pypi.yml instead.
+For a credential-free build, run .\scripts\build-pypi.ps1.
+
 To save the token for later publishes:
 
     .\scripts\publish-pypi.ps1 -SaveToken
@@ -85,44 +89,14 @@ function Invoke-Python {
 
 Push-Location $repositoryRoot
 try {
+    & (Join-Path $PSScriptRoot "build-pypi.ps1")
+
     $projectVersion = (
         python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
     ).Trim()
     if ($LASTEXITCODE -ne 0) {
         throw "Could not read the project version"
     }
-
-    $moduleVersion = (
-        python -c "import sys; sys.path.insert(0, 'src'); import app_service_extensions; print(app_service_extensions.__version__)"
-    ).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not read the module version"
-    }
-
-    if ($projectVersion -ne $moduleVersion) {
-        throw "Version mismatch: pyproject.toml is $projectVersion but __version__ is $moduleVersion"
-    }
-
-    Write-Host "Preparing app-service-functions-custom-middleware $projectVersion"
-
-    # Install every dependency exercised by the release test suite.
-    Invoke-Python -Arguments @(
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "build",
-        "twine",
-        ".[dev,functions,identity,hosted-skills]"
-    )
-    Invoke-Python -Arguments @("-m", "pytest")
-
-    # Never upload stale artifacts from an earlier version.
-    if (Test-Path .\dist) {
-        Remove-Item -Recurse -Force .\dist
-    }
-
-    Invoke-Python -Arguments @("-m", "build")
 
     $artifacts = @(
         Get-ChildItem .\dist -File |
@@ -133,8 +107,6 @@ try {
     if ($artifacts.Count -eq 0) {
         throw "The build produced no wheel or source distribution"
     }
-
-    Invoke-Python -Arguments (@("-m", "twine", "check") + $artifacts)
 
     # Twine reads these standard variables in its child process. Restore any
     # pre-existing values immediately after the upload attempt.

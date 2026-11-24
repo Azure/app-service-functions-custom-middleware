@@ -1,0 +1,74 @@
+# Register as app-service-functions-custom-middleware-build in the ADO mirror.
+trigger:
+  branches:
+    include:
+      - main
+
+# Azure Repos PR validation is configured through branch policies.
+pr: none
+
+variables:
+  WindowsContainerImage: onebranch.azurecr.io/windows/ltsc2022/vse2022:latest
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: OneBranch.Pipelines/GovernedTemplates
+      ref: refs/heads/main
+
+extends:
+  template: v2/OneBranch.Official.CrossPlat.yml@templates
+  parameters:
+    featureFlags:
+      WindowsHostVersion:
+        Version: 2022
+    globalSdl:
+      tsa:
+        enabled: false
+      policheck:
+        break: true
+
+    stages:
+      - stage: Build
+        jobs:
+          - job: Package
+            pool:
+              type: windows
+            variables:
+              ob_outputDirectory: '$(Build.ArtifactStagingDirectory)\package'
+              ob_artifactBaseName: python-build-outputs
+            steps:
+              - checkout: self
+                clean: true
+                persistCredentials: false
+
+              - task: UsePythonVersion@0
+                displayName: Use Python 3.13 for the full integration suite
+                inputs:
+                  versionSpec: '3.13'
+                  architecture: x64
+
+              - pwsh: |
+                  .\scripts\build-pypi.ps1 -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                displayName: Test, build, and validate Python distributions
+
+              - task: PublishTestResults@2
+                displayName: Publish pytest results
+                condition: succeededOrFailed()
+                inputs:
+                  testResultsFormat: JUnit
+                  searchFolder: '$(Common.TestResultsDirectory)'
+                  testResultsFiles: pytest.xml
+                  failTaskOnFailedTests: true
+                  failTaskOnMissingResultsFile: true
+                  testRunTitle: Package release tests
+
+              - task: CopyFiles@2
+                displayName: Stage validated distributions for OneBranch
+                inputs:
+                  SourceFolder: '$(Build.SourcesDirectory)\dist'
+                  Contents: |
+                    *.whl
+                    *.tar.gz
+                  TargetFolder: '$(ob_outputDirectory)\dist'
