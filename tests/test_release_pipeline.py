@@ -29,7 +29,7 @@ def test_build_authenticates_dependency_feed_before_python_setup():
     assert authentication and python_setup
     assert authentication.start() < python_setup.start()
     inputs = build[authentication.end():python_setup.start()]
-    assert re.search(r"(?m)^\s+artifactFeeds:\s+Antares/Antares_PublicPackages\s*$", inputs)
+    assert re.search(r"(?m)^\s+artifactFeeds:\s+Antares/antares-websites-ml-python\s*$", inputs)
     assert re.search(r"(?m)^\s+onlyAddExtraIndex:\s+false\s*$", inputs)
 
 

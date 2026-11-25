@@ -46,7 +46,7 @@ extends:
               - task: PipAuthenticate@1
                 displayName: Authenticate dependency downloads through the Antares feed
                 inputs:
-                  artifactFeeds: Antares/Antares_PublicPackages
+                  artifactFeeds: Antares/antares-websites-ml-python
                   onlyAddExtraIndex: false
 
               - task: UsePythonVersion@0
