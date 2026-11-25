@@ -5,38 +5,47 @@ trigger:
     - main
 pr: none
 
+variables:
+  WindowsContainerImage: 'onebranch.azurecr.io/windows/ltsc2022/vse2022:latest'
+
 resources:
   repositories:
-  - repository: 1es
+  - repository: onebranch
     type: git
-    name: 1ESPipelineTemplates/1ESPipelineTemplates
-    ref: refs/tags/release
+    name: OneBranch.Pipelines/GovernedTemplates
+    ref: refs/heads/main
   - repository: mirror
     type: git
     name: Antares/AppServiceFunctionsCustomMiddleware
     ref: refs/heads/main
 
 extends:
-  template: v1/1ES.Unofficial.PipelineTemplate.yml@1es
+  template: v2/OneBranch.NonOfficial.CrossPlat.yml@onebranch
   parameters:
-    sdl:
+    featureFlags:
+      WindowsHostVersion:
+        Version: 2022
+      EnableCDPxPAT: false
+    globalSdl:
       sourceRepositoriesToScan:
         include:
         - repository: mirror
-    pool:
-      name: antares-vs2022-v3
-      os: windows
     stages:
     - stage: Mirror
       jobs:
       - job: MirrorMain
-        workspace:
-          clean: all
-        templateContext:
-          type: validationJob
+        pool:
+          type: windows
+        variables:
+          # Use the two explicit checkouts instead of OneBranch's shallow checkout at s/.
+          ob_git_checkout: false
+          ob_git_skip_checkout_none: true
+          ob_outputDirectory: '$(Build.ArtifactStagingDirectory)'
+          ob_pipelineartifacts_enabled: false
         steps:
         - checkout: self
           path: s/source
+          clean: true
           fetchDepth: 0
           fetchTags: false
           persistCredentials: false
@@ -58,6 +67,7 @@ extends:
 
         - checkout: mirror
           path: s/destination
+          clean: true
           fetchDepth: 0
           fetchTags: false
           persistCredentials: false
