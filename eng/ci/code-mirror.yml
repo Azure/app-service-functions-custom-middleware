@@ -11,10 +11,18 @@ resources:
     type: git
     name: 1ESPipelineTemplates/1ESPipelineTemplates
     ref: refs/tags/release
+  - repository: mirror
+    type: git
+    name: Antares/AppServiceFunctionsCustomMiddleware
+    ref: refs/heads/main
 
 extends:
   template: v1/1ES.Unofficial.PipelineTemplate.yml@1es
   parameters:
+    sdl:
+      sourceRepositoriesToScan:
+        include:
+        - repository: mirror
     pool:
       name: antares-vs2022-v3
       os: windows
@@ -48,7 +56,7 @@ extends:
           displayName: Validate the triggering commit
           workingDirectory: $(Pipeline.Workspace)/s/source
 
-        - checkout: git://Antares/AppServiceFunctionsCustomMiddleware@refs/heads/main
+        - checkout: mirror
           path: s/destination
           fetchDepth: 0
           fetchTags: false
