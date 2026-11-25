@@ -21,6 +21,14 @@ PACKAGE = "app-service-functions-custom-middleware"
 VERSION = "1.0.0"
 
 
+def test_release_references_esrp_template_from_self():
+    root = Path(__file__).resolve().parents[1]
+    release = (root / ".pipelines" / "release-pypi.yml").read_text(encoding="utf-8")
+    references = re.findall(r"(?m)^\s+- template:\s+(\S+)\s*$", release)
+    assert "/.pipelines/templates/publish-pypi-esrp.yml@self" in references
+    assert (root / ".pipelines" / "templates" / "publish-pypi-esrp.yml").is_file()
+
+
 @pytest.fixture
 def release_preflight(tmp_path):
     template = (
