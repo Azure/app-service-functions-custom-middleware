@@ -78,7 +78,7 @@ extends:
                   COLLECTION_URI: $(System.CollectionUri)
                   SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
-              - template: templates/publish-pypi-esrp.yml
+              - template: /.pipelines/templates/publish-pypi-esrp.yml@self
                 parameters:
                   folderLocation: '$(Pipeline.Workspace)\packageBuild\python-build-outputs\dist'
                   expectedVersion: ${{ parameters.releaseVersion }}
