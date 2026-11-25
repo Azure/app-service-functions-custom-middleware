@@ -56,7 +56,7 @@ extends:
                   architecture: x64
 
               - pwsh: |
-                  .\scripts\build-pypi.ps1 -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                  & "$(Build.SourcesDirectory)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
                 displayName: Test, build, and validate Python distributions
 
               - task: PublishTestResults@2
