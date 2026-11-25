@@ -19,6 +19,7 @@ resources:
       ref: refs/heads/main
   pipelines:
     - pipeline: packageBuild
+      project: Antares
       source: app-service-functions-custom-middleware-build
       branch: refs/heads/main
       trigger: none

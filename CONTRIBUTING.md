@@ -46,12 +46,17 @@ checks that the versions in `pyproject.toml` and
 `src\app_service_extensions\__init__.py` agree, replaces `dist`, builds a
 wheel and source distribution with the configured Poetry backend, and runs
 strict Twine metadata checks. A failed test or check prevents artifact publication.
-The legacy `scripts\publish-pypi.ps1` delegates to this same build script;
-its direct Twine upload is not the Microsoft production release path.
+Twine is used only for metadata validation; publishing goes through the ESRP
+release pipeline. There is no direct-upload script or local PyPI-token workflow.
 
 ### Azure DevOps mirror setup
 
-The GitHub and Azure Repos mirrors use the same build script and tests.
+The Azure Repos mirror is
+[`AppServiceFunctionsCustomMiddleware`](https://dev.azure.com/msazure/Antares/_git/AppServiceFunctionsCustomMiddleware)
+in the **Antares** project, with `main` as its default branch. The repository
+name does not need to match the Python package name or the build pipeline name.
+Merge these changes into GitHub `main` and sync them to the mirror before
+registering the pipelines. Both repositories use the same build script and tests.
 The YAML files are drafts until the ADO resources below are configured.
 No pipeline, identity, certificate, or service connection is created by these files.
 
@@ -85,7 +90,10 @@ service connection, or certificate.
 
 1. Create a build pipeline named
    `app-service-functions-custom-middleware-build` pointing at
-   `.pipelines/build-pypi.yml` in the mirrored repo. It builds `main` and publishes
+   `.pipelines/build-pypi.yml` in the mirrored repo, in the Antares project.
+   Keep this pipeline name in sync with `resources.pipelines.packageBuild.source`
+   in `.pipelines/release-pypi.yml`; it names a pipeline, not a repository.
+   The pipeline builds `main` and publishes
    `python-build-outputs` only after successful tests and distribution checks.
    Add Azure Repos branch-policy build validation if desired; `pr: none` does
    not disable Azure Repos branch policies. The build requires no release secrets.
@@ -113,7 +121,7 @@ service connection, or certificate.
    validates this and normalizes the lists before invoking ESRP. Choose the role
    split explicitly rather than putting the same people in both lists.
    Do not put certificates, private keys, or PyPI tokens in YAML.
-   If the build pipeline is in another project, add its `project` under the
+   If the build pipeline is moved to another project, update its `project` under the
    pipeline resource and grant build/artifact-read permission to the release
    pipeline's Build Service identity. The release uses `System.AccessToken`
    only to verify the selected build's successful result and commit via the
