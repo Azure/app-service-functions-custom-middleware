@@ -21,6 +21,18 @@ PACKAGE = "app-service-functions-custom-middleware"
 VERSION = "1.0.0"
 
 
+def test_build_authenticates_dependency_feed_before_python_setup():
+    root = Path(__file__).resolve().parents[1]
+    build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
+    authentication = re.search(r"(?m)^\s+- task:\s+PipAuthenticate@1\s*$", build)
+    python_setup = re.search(r"(?m)^\s+- task:\s+UsePythonVersion@0\s*$", build)
+    assert authentication and python_setup
+    assert authentication.start() < python_setup.start()
+    inputs = build[authentication.end():python_setup.start()]
+    assert re.search(r"(?m)^\s+artifactFeeds:\s+Antares/Antares_PublicPackages\s*$", inputs)
+    assert re.search(r"(?m)^\s+onlyAddExtraIndex:\s+false\s*$", inputs)
+
+
 def test_release_references_esrp_template_from_self():
     root = Path(__file__).resolve().parents[1]
     release = (root / ".pipelines" / "release-pypi.yml").read_text(encoding="utf-8")

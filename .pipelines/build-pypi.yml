@@ -43,6 +43,12 @@ extends:
                 clean: true
                 persistCredentials: false
 
+              - task: PipAuthenticate@1
+                displayName: Authenticate dependency downloads through the Antares feed
+                inputs:
+                  artifactFeeds: Antares/Antares_PublicPackages
+                  onlyAddExtraIndex: false
+
               - task: UsePythonVersion@0
                 displayName: Use Python 3.13 for the full integration suite
                 inputs:
