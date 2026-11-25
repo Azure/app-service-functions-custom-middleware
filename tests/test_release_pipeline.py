@@ -33,6 +33,14 @@ def test_build_authenticates_dependency_feed_before_python_setup():
     assert re.search(r"(?m)^\s+onlyAddExtraIndex:\s+false\s*$", inputs)
 
 
+def test_build_uses_repository_local_path_for_checkout_files():
+    root = Path(__file__).resolve().parents[1]
+    build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
+    assert '& "$(Build.Repository.LocalPath)\\scripts\\build-pypi.ps1"' in build
+    assert "workingDirectory: '$(Build.Repository.LocalPath)'" in build
+    assert "SourceFolder: '$(Build.Repository.LocalPath)\\dist'" in build
+
+
 def test_release_references_esrp_template_from_self():
     root = Path(__file__).resolve().parents[1]
     release = (root / ".pipelines" / "release-pypi.yml").read_text(encoding="utf-8")

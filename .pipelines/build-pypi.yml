@@ -56,7 +56,8 @@ extends:
                   architecture: x64
 
               - pwsh: |
-                  & "$(Build.SourcesDirectory)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                  & "$(Build.Repository.LocalPath)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                workingDirectory: '$(Build.Repository.LocalPath)'
                 displayName: Test, build, and validate Python distributions
 
               - task: PublishTestResults@2
@@ -73,7 +74,7 @@ extends:
               - task: CopyFiles@2
                 displayName: Stage validated distributions for OneBranch
                 inputs:
-                  SourceFolder: '$(Build.SourcesDirectory)\dist'
+                  SourceFolder: '$(Build.Repository.LocalPath)\dist'
                   Contents: |
                     *.whl
                     *.tar.gz
