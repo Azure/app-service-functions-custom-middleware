@@ -9,7 +9,6 @@ pr: none
 
 variables:
   WindowsContainerImage: onebranch.azurecr.io/windows/ltsc2022/vse2022:latest
-  repositoryRoot: '$(Pipeline.Workspace)\s\package-src'
 
 resources:
   repositories:
@@ -58,8 +57,8 @@ extends:
                   architecture: x64
 
               - pwsh: |
-                  & "$(repositoryRoot)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
-                workingDirectory: '$(repositoryRoot)'
+                  & "$(Pipeline.Workspace)\s\package-src\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                workingDirectory: '$(Pipeline.Workspace)\s\package-src'
                 displayName: Test, build, and validate Python distributions
 
               - task: PublishTestResults@2
@@ -76,7 +75,7 @@ extends:
               - task: CopyFiles@2
                 displayName: Stage validated distributions for OneBranch
                 inputs:
-                  SourceFolder: '$(repositoryRoot)\dist'
+                  SourceFolder: '$(Pipeline.Workspace)\s\package-src\dist'
                   Contents: |
                     *.whl
                     *.tar.gz

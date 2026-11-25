@@ -37,10 +37,9 @@ def test_build_uses_explicit_checkout_path_for_checkout_files():
     root = Path(__file__).resolve().parents[1]
     build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
     assert "path: 's\\package-src'" in build
-    assert "repositoryRoot: '$(Pipeline.Workspace)\\s\\package-src'" in build
-    assert '& "$(repositoryRoot)\\scripts\\build-pypi.ps1"' in build
-    assert "workingDirectory: '$(repositoryRoot)'" in build
-    assert "SourceFolder: '$(repositoryRoot)\\dist'" in build
+    assert '& "$(Pipeline.Workspace)\\s\\package-src\\scripts\\build-pypi.ps1"' in build
+    assert "workingDirectory: '$(Pipeline.Workspace)\\s\\package-src'" in build
+    assert "SourceFolder: '$(Pipeline.Workspace)\\s\\package-src\\dist'" in build
 
 
 def test_release_references_esrp_template_from_self():
