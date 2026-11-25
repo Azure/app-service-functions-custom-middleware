@@ -1,0 +1,87 @@
+# Manual only. Select a successful main build in Run pipeline > Resources.
+trigger: none
+pr: none
+
+parameters:
+  - name: releaseVersion
+    displayName: Exact package version to publish
+    type: string
+  - name: esrpOwners
+    type: string
+  - name: esrpApprovers
+    type: string
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: OneBranch.Pipelines/GovernedTemplates
+      ref: refs/heads/main
+  pipelines:
+    - pipeline: packageBuild
+      project: Antares
+      source: app-service-functions-custom-middleware-build
+      branch: refs/heads/main
+      trigger: none
+
+extends:
+  template: v2/OneBranch.Official.CrossPlat.yml@templates
+  parameters:
+    release:
+      category: NonAzure
+    stages:
+      - stage: Release
+        displayName: Release validated distributions to PyPI
+        variables:
+          - name: ob_release_environment
+            value: Production
+          - name: ob_release_usedeploymentjob
+            value: true
+          - name: ob_deploymentjob_environment
+            value: pypi-release
+        jobs:
+          - job: PublishPyPI
+            displayName: Publish through ESRP
+            pool:
+              type: release
+              os: windows
+            templateContext:
+              inputs:
+                - input: pipelineArtifact
+                  pipeline: packageBuild
+                  artifactName: python-build-outputs
+                  targetPath: '$(Pipeline.Workspace)\packageBuild\python-build-outputs'
+            steps:
+              - pwsh: |
+                  $ErrorActionPreference = "Stop"
+                  if ($env:RELEASE_BRANCH -ne "refs/heads/main" -or $env:SOURCE_BRANCH -ne "refs/heads/main") {
+                      throw "Both the release pipeline and the selected package build must be from main"
+                  }
+                  $buildUrl = "$($env:COLLECTION_URI)$($env:SOURCE_PROJECT_ID)/_apis/build/builds/$($env:SOURCE_RUN_ID)?api-version=7.1"
+                  $build = Invoke-RestMethod -Uri $buildUrl -Headers @{
+                      Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN"
+                  }
+                  if ($build.status -ne "completed" -or $build.result -ne "succeeded") {
+                      throw "The selected package build must have completed successfully"
+                  }
+                  if ($build.sourceBranch -ne $env:SOURCE_BRANCH -or $build.sourceVersion -ne $env:SOURCE_COMMIT) {
+                      throw "The selected build does not match the pipeline resource"
+                  }
+                  Write-Host "Releasing artifacts from build $env:SOURCE_RUN_ID ($env:SOURCE_COMMIT)"
+                displayName: Validate selected build provenance
+                env:
+                  RELEASE_BRANCH: $(Build.SourceBranch)
+                  SOURCE_BRANCH: $(resources.pipeline.packageBuild.sourceBranch)
+                  SOURCE_RUN_ID: $(resources.pipeline.packageBuild.runID)
+                  SOURCE_COMMIT: $(resources.pipeline.packageBuild.sourceCommit)
+                  SOURCE_PROJECT_ID: $(resources.pipeline.packageBuild.projectID)
+                  COLLECTION_URI: $(System.CollectionUri)
+                  SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+              - template: templates/publish-pypi-esrp.yml
+                parameters:
+                  folderLocation: '$(Pipeline.Workspace)\packageBuild\python-build-outputs\dist'
+                  expectedVersion: ${{ parameters.releaseVersion }}
+                  owners: ${{ parameters.esrpOwners }}
+                  approvers: ${{ parameters.esrpApprovers }}
+                  displayName: Publish to PyPI
