@@ -9,6 +9,7 @@ pr: none
 
 variables:
   WindowsContainerImage: onebranch.azurecr.io/windows/ltsc2022/vse2022:latest
+  repositoryRoot: '$(Pipeline.Workspace)\s\package-src'
 
 resources:
   repositories:
@@ -42,6 +43,7 @@ extends:
               - checkout: self
                 clean: true
                 persistCredentials: false
+                path: 's\package-src'
 
               - task: PipAuthenticate@1
                 displayName: Authenticate dependency downloads through the Antares feed
@@ -56,8 +58,8 @@ extends:
                   architecture: x64
 
               - pwsh: |
-                  & "$(Build.Repository.LocalPath)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
-                workingDirectory: '$(Build.Repository.LocalPath)'
+                  & "$(repositoryRoot)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                workingDirectory: '$(repositoryRoot)'
                 displayName: Test, build, and validate Python distributions
 
               - task: PublishTestResults@2
@@ -74,7 +76,7 @@ extends:
               - task: CopyFiles@2
                 displayName: Stage validated distributions for OneBranch
                 inputs:
-                  SourceFolder: '$(Build.Repository.LocalPath)\dist'
+                  SourceFolder: '$(repositoryRoot)\dist'
                   Contents: |
                     *.whl
                     *.tar.gz
