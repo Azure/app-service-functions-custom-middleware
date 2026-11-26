@@ -50,11 +50,32 @@ extends:
                   artifactFeeds: Antares/antares-websites-ml-python
                   onlyAddExtraIndex: false
 
-              - task: UsePythonVersion@0
-                displayName: Use Python 3.13 for the full integration suite
-                inputs:
-                  versionSpec: '3.13'
-                  architecture: x64
+              # UsePythonVersion@0 installs a Python without its standard library
+              # inside the OneBranch Windows container, so use the image's Python.
+              - pwsh: |
+                  $ErrorActionPreference = 'Stop'
+                  $python = $null
+                  if (Get-Command py -ErrorAction SilentlyContinue) {
+                    $python = py -3.13-64 -I -c "import sys; print(sys.executable)"
+                    if ($LASTEXITCODE -ne 0) { $python = $null }
+                  }
+                  if (-not $python) {
+                    $python = @(
+                      "$env:ProgramFiles\Python313\python.exe"
+                      "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe"
+                    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+                  }
+                  if (-not $python) { throw 'The build image must provide Python 3.13 x64.' }
+                  $python = "$python".Trim()
+                  & $python -I -c "import sys, struct; assert sys.version_info[:2] == (3, 13) and struct.calcsize('P') == 8, sys.version"
+                  if ($LASTEXITCODE -ne 0) { throw "Unsupported Python runtime: $python" }
+                  & $python -m pip --version
+                  if ($LASTEXITCODE -ne 0) { throw "pip is unavailable for $python" }
+                  $pythonDirectory = Split-Path -Parent $python
+                  Write-Host "Selected Python: $python"
+                  Write-Host "##vso[task.prependpath]$pythonDirectory\Scripts"
+                  Write-Host "##vso[task.prependpath]$pythonDirectory"
+                displayName: Select the image's Python 3.13 x64
 
               - pwsh: |
                   & "$(Pipeline.Workspace)\s\package-src\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
