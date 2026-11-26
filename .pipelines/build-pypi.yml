@@ -38,15 +38,12 @@ extends:
             variables:
               ob_outputDirectory: '$(Build.ArtifactStagingDirectory)\package'
               ob_artifactBaseName: python-build-outputs
+              ob_git_persistCredentials: false
             steps:
-              - checkout: self
-                clean: true
-                persistCredentials: false
-
               - task: PipAuthenticate@1
                 displayName: Authenticate dependency downloads through the Antares feed
                 inputs:
-                  artifactFeeds: Antares/Antares_PublicPackages
+                  artifactFeeds: Antares/antares-websites-ml-python
                   onlyAddExtraIndex: false
 
               - task: UsePythonVersion@0
@@ -56,8 +53,9 @@ extends:
                   architecture: x64
 
               - pwsh: |
-                  .\scripts\build-pypi.ps1 -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
+                  & "$(Build.Repository.LocalPath)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
                 displayName: Test, build, and validate Python distributions
+                workingDirectory: '$(Build.Repository.LocalPath)'
 
               - task: PublishTestResults@2
                 displayName: Publish pytest results
@@ -73,7 +71,7 @@ extends:
               - task: CopyFiles@2
                 displayName: Stage validated distributions for OneBranch
                 inputs:
-                  SourceFolder: '$(Build.SourcesDirectory)\dist'
+                  SourceFolder: '$(Build.Repository.LocalPath)\dist'
                   Contents: |
                     *.whl
                     *.tar.gz

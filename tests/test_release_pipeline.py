@@ -21,6 +21,13 @@ PACKAGE = "app-service-functions-custom-middleware"
 VERSION = "1.0.0"
 
 
+def test_build_leaves_checkout_to_onebranch():
+    root = Path(__file__).resolve().parents[1]
+    build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
+    assert not re.search(r"(?m)^\s+- checkout:", build)
+    assert re.search(r"(?m)^\s+ob_git_persistCredentials:\s+false\s*$", build)
+
+
 def test_build_authenticates_dependency_feed_before_python_setup():
     root = Path(__file__).resolve().parents[1]
     build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
@@ -29,8 +36,53 @@ def test_build_authenticates_dependency_feed_before_python_setup():
     assert authentication and python_setup
     assert authentication.start() < python_setup.start()
     inputs = build[authentication.end():python_setup.start()]
-    assert re.search(r"(?m)^\s+artifactFeeds:\s+Antares/Antares_PublicPackages\s*$", inputs)
+    assert re.search(
+        r"(?m)^\s+artifactFeeds:\s+Antares/antares-websites-ml-python\s*$", inputs
+    )
     assert re.search(r"(?m)^\s+onlyAddExtraIndex:\s+false\s*$", inputs)
+
+
+def test_build_uses_actual_checkout_path_from_another_directory(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
+    match = re.search(
+        r"(?ms)^              - pwsh: \|\r?\n(?P<script>.*?)^                displayName:",
+        build,
+    )
+    assert match, "Package build step not found"
+    assert re.search(
+        r"(?m)^\s+workingDirectory: '\$\(Build\.Repository\.LocalPath\)'\s*$", build
+    )
+    assert re.search(
+        r"(?m)^\s+SourceFolder: '\$\(Build\.Repository\.LocalPath\)\\dist'\s*$", build
+    )
+
+    checkout = tmp_path / "checkout with spaces"
+    scripts = checkout / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "build-pypi.ps1").write_text(
+        'param([string] $TestResultsFile)\n'
+        'Write-Output "Invoked build script"\n'
+        'Write-Output "Test results: $TestResultsFile"\n',
+        encoding="utf-8",
+    )
+    results = str(tmp_path / "test results")
+    command = (
+        textwrap.dedent(match["script"])
+        .replace("$(Build.Repository.LocalPath)", str(checkout))
+        .replace("$(Common.TestResultsDirectory)", results)
+    )
+    result = subprocess.run(
+        [PWSH, "-NoProfile", "-NonInteractive", "-Command", command],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Invoked build script" in result.stdout
+    assert f"Test results: {results}\\pytest.xml" in result.stdout
 
 
 def test_release_references_esrp_template_from_self():
