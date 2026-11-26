@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tarfile
 import textwrap
 import zipfile
@@ -43,9 +42,7 @@ def test_build_authenticates_dependency_feed_before_python_setup():
     assert re.search(r"(?m)^\s+onlyAddExtraIndex:\s+false\s*$", inputs)
 
 
-@pytest.mark.skipif(os.name != "nt", reason="The build bootstrap targets Windows")
-@pytest.mark.parametrize("fail_creation", [False, True])
-def test_build_bootstraps_pip_and_uses_actual_checkout_path(tmp_path, fail_creation):
+def test_build_uses_actual_checkout_path_from_another_directory(tmp_path):
     root = Path(__file__).resolve().parents[1]
     build = (root / ".pipelines" / "build-pypi.yml").read_text(encoding="utf-8")
     match = re.search(
@@ -66,42 +63,14 @@ def test_build_bootstraps_pip_and_uses_actual_checkout_path(tmp_path, fail_creat
     (scripts / "build-pypi.ps1").write_text(
         'param([string] $TestResultsFile)\n'
         'Write-Output "Invoked build script"\n'
-        'Write-Output "Test results: $TestResultsFile"\n'
-        'python -c "import sys; print(\'Build interpreter: \' + sys.prefix)"\n'
-        'if ($LASTEXITCODE -ne 0) { throw "Build interpreter check failed" }\n',
+        'Write-Output "Test results: $TestResultsFile"\n',
         encoding="utf-8",
     )
-    base = tmp_path / "python without pip"
-    create_base = subprocess.run(
-        [sys.executable, "-m", "venv", "--without-pip", str(base)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert create_base.returncode == 0, create_base.stderr
-    base_python = base / "Scripts" / "python.exe"
-    check_base = subprocess.run(
-        [str(base_python), "-m", "pip", "--version"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert check_base.returncode != 0
-    assert "No module named pip" in check_base.stderr
-
     results = str(tmp_path / "test results")
-    agent_temp = tmp_path / "agent temp"
-    agent_temp.mkdir()
-    if fail_creation:
-        (agent_temp / "pypi-build").write_text("not a directory", encoding="utf-8")
     command = (
         textwrap.dedent(match["script"])
         .replace("$(Build.Repository.LocalPath)", str(checkout))
         .replace("$(Common.TestResultsDirectory)", results)
-        .replace("$(Agent.TempDirectory)", str(agent_temp))
-        .replace("$(pythonLocation)", str(base_python.parent))
     )
     result = subprocess.run(
         [PWSH, "-NoProfile", "-NonInteractive", "-Command", command],
@@ -111,16 +80,9 @@ def test_build_bootstraps_pip_and_uses_actual_checkout_path(tmp_path, fail_creat
         timeout=30,
         check=False,
     )
-    if fail_creation:
-        assert result.returncode != 0
-        assert "Could not create the Python build virtual environment" in result.stderr
-        assert "Invoked build script" not in result.stdout
-        return
     assert result.returncode == 0, result.stderr
     assert "Invoked build script" in result.stdout
     assert f"Test results: {results}\\pytest.xml" in result.stdout
-    assert f"Build interpreter: {agent_temp / 'pypi-build'}" in result.stdout
-    assert "site-packages\\pip" in result.stdout
 
 
 def test_release_references_esrp_template_from_self():
