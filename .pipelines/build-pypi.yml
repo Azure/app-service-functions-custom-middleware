@@ -53,17 +53,6 @@ extends:
                   architecture: x64
 
               - pwsh: |
-                  $ErrorActionPreference = "Stop"
-                  $venv = Join-Path "$(Agent.TempDirectory)" "pypi-build"
-                  & "$(pythonLocation)\python.exe" -m venv $venv
-                  if ($LASTEXITCODE -ne 0) {
-                      throw "Could not create the Python build virtual environment"
-                  }
-                  . "$venv\Scripts\Activate.ps1"
-                  python -m pip --version
-                  if ($LASTEXITCODE -ne 0) {
-                      throw "Pip is unavailable in the Python build virtual environment"
-                  }
                   & "$(Build.Repository.LocalPath)\scripts\build-pypi.ps1" -TestResultsFile "$(Common.TestResultsDirectory)\pytest.xml"
                 displayName: Test, build, and validate Python distributions
                 workingDirectory: '$(Build.Repository.LocalPath)'
